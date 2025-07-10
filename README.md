@@ -11,16 +11,16 @@
 ## まずはじめに
 このリポジトリは、通信事業者のコアネットワーク（CN）の概要を初心者が理解するための学習メモです。インターネットから得られる普遍的な情報に基づき、特定のキャリアや機器の詳細は記載しません。詳細な実装情報が必要な場合は、他の専門資料を参照してください。
 
-特に、IoT（Internet of Things）のような大量のデバイスが接続する現代のネットワークでは、コアネットワークがデータの高速転送、認証、ルーティングを支えます。このメモでは、大規模MNO（移動体通信事業者）のネットワーク全体像、コアネットワークとアクセスネットワークの役割、バックアップや位置情報の重要性、そしてIoT向けのBGP（ルートリフレクター）やRADIUS認証の設定例を紹介します。
+特に、IoT（Internet of Things）のような大量のデバイスが接続する現代のネットワークでは、コアネットワークがデータの高速転送、認証、ルーティングを支えます。このメモでは、大規模MNO（移動体通信事業者）のネットワーク全体像、コアネットワークとアクセスネットワークの役割、バックアップや位置情報の重要性、そしてIoT向けのBGP（ルートリフレクター）、RADIUS認証、スイッチ（スパニングツリー）の設定例を紹介します。
 
 ## コアネットワークとアクセスネットワークの概要
 大規模MNOのネットワークは、以下の3つの階層で構成されています：
 
 1. **アクセスネットワーク（AN, RAN）**:
-   - ユーザーデバイスやIoTデバイスが最初に接続する「入り口」。基地局（eNodeB/gNodeB）やWi-Fiアクセスポイント、固定網（例：FTTH）を通じて接続。
-   - モバイルバックホール（L2/L3伝送ネットワーク）でトラフィックを収容ルータ（PE相当）に中継。
-   - 役割：デバイス認証（例：RADIUS）、初期トラフィック制御。
-   - 例：IoTセンサーが5G基地局に接続し、RADIUSで認証後、データがコアNWに送られる。
+   - ユーザーデバイスやIoTデバイスが最初に接続する「入り口」。基地局（eNodeB/gNodeB）、Wi-Fiアクセスポイント、固定網（例：FTTH）を通じて接続。
+   - モバイルバックホール（L2/L3伝送ネットワーク）でトラフィックを収容ルータ（PE相当）に中継。L2スイッチが基地局間やバックホールで使用され、ループ防止のためにRSTP（Rapid Spanning Tree Protocol）が動作。
+   - 役割：デバイス認証（例：RADIUS）、初期トラフィック制御、VLANによるトラフィック分離。
+   - 例：IoTセンサーが5G基地局に接続し、RADIUSで認証後、VLAN 100を経由してデータがコアNWに送られる。
 
 2. **コアネットワーク（CN, IPコアNW）**:
    - 全国のトラフィックを集約・転送する高速バックボーン。インターネット接続点（IX/ISP）やモバイルコア機器（EPC: MME/SGW/PGW、5GC: AMF/SMF/UPF）と接続。
@@ -32,24 +32,32 @@
    - 役割：マルチメディアサービスや外部ネットワークとの連携。
    - 例：VoLTE通話のセッションをIMSが管理し、データパケットをコアNW経由で転送。
 
-以下は、ネットワーク全体の通信経路：
+以下は、ネットワーク全体の通信経路（スイッチを含む）：
 
 ```mermaid
 graph LR
     A[ユーザ端末 / IoTデバイス] --> B[基地局 gNB eNB]
-    B -- モバイルバックホール --> C[アクセスNWルータ PE]
-    C -- BGP --> D[コアNWルータ PE P]
-    D -- IGP IS-IS OSPF --> E[コアNW]
-    E -- BGP --> F[インターネットGWルータ]
-    F --> G[IX ISP]
-    E --> H[サービスNW IMS VoLTE]
+    B -- モバイルバックホール --> C[L2スイッチ SW1]
+    C -- RSTP --> D[L2スイッチ SW2]
+    C --> E[アクセスNWルータ PE]
+    D --> E
+    E -- BGP --> F[コアNWルータ PE P]
+    F -- IGP IS-IS OSPF --> G[コアNW]
+    G -- BGP --> H[インターネットGWルータ]
+    H --> I[IX ISP]
+    G --> J[サービスNW IMS VoLTE]
+    style C fill:#f9f,stroke:#333,stroke-width:2px
+    style D fill:#f9f,stroke:#333,stroke-width:2px
+    linkStyle 2 stroke:#f00,stroke-width:2px,stroke-dasharray:5
 ```
+
+**説明**: IoTデバイスが基地局に接続後、L2スイッチ（SW1、SW2）でトラフィックを中継。RSTPがループを防ぎ（赤い破線はブロックされたリンク）、PEルータがコアNWにトラフィックを転送。
 
 ### コアネットワークとアクセスネットワークの役割
 | 項目 | 内容 |
 |------|------|
 | **コアネットワーク（CN）** | 音声・データ通信・認証・ルーティングを担う中核NW。BGPでトラフィックを最適化。EPC/5GCでモバイル通信を管理。 |
-| **アクセスネットワーク（AN）** | ユーザデバイス/IoTデバイスの入り口（基地局/Wi-Fi/固定網）。RADIUSで認証し、初期トラフィック制御。 |
+| **アクセスネットワーク（AN）** | ユーザデバイス/IoTデバイスの入り口（基地局/Wi-Fi/固定網）。RADIUSで認証し、初期トラフィック制御。L2スイッチとRSTPでトラフィックを安定化。 |
 
 ### コアネットワークの主要機能
 - **データ転送**: ユーザーデータ（音声、動画、センサーデータ）を高速かつ効率的に転送。
@@ -63,9 +71,9 @@ graph LR
 コアネットワークは以下のように分類されます：
 | 名称 | 機能 | 例 |
 |------|------|-----|
-| **CS（Circuit-Switched）** | 回線交換方式で音声通話を処理。 | 従来の固定電話の通話。専用回線を確保し、安定した通話を提供。 |
+| **CS（Circuit-Switched）** | 回線交換方式で音声通話を処理。 | 2G/3Gの音声通話（例：UMTS）。専用回線を確保し、安定した通話を提供。 |
 | **PS（Packet-Switched）** | パケット交換方式でデータ通信を処理。 | ウェブ閲覧やIoTデータの送信。データをパケットに分割して効率的に転送。 |
-| **SV（Signaling Virtualization）** | 信号処理を仮想化し、効率的な管理を実現。 | VoLTEやIoTの信号管理を一元化。 |
+| **SV（Signaling Virtualization）** | 信号処理やネットワーク機能を仮想化し、効率的な管理を実現。 | VoLTEやIoTの信号管理を一元化。|
 
 ### IMS基盤
 IMS（IP Multimedia Subsystem）は、IPベースで音声や動画などのマルチメディアサービスを統合的に管理するアーキテクチャです。IoTでは、デバイス認証やセッション管理を効率化します。
@@ -74,13 +82,14 @@ IMS（IP Multimedia Subsystem）は、IPベースで音声や動画などのマ�
 #### IMSの構成要素
 | 名称 | 機能 |
 |------|------|
-| **MSC（Mobile Switching Center）** | 音声通話の管理とルーティング。 |
+| **P-CSCF（Proxy-CSCF）** | ユーザデバイスとIMS間の最初の接続点。 |
+| **I-CSCF（Interrogating-CSCF）** | セッションのルーティングを管理。 |
+| **S-CSCF（Serving-CSCF）** | セッション管理とサービス制御。 |
 | **MME（Mobility Management Entity）** | デバイス認証やモビリティ管理。IoTデバイスのセッション管理に必須。 |
 | **SGW（Serving Gateway）** | ユーザーデータの転送を担当。基地局とコアNW間のデータ中継。 |
 | **PGW（Packet Data Network Gateway）** | 外部ネットワーク（インターネットやクラウド）との接続。 |
 | **HSS（Home Subscriber Server）** | ユーザー情報や認証データを保持。RADIUSと連携してIoTデバイス認証を支援。 |
 | **PCRF（Policy and Charging Rules Function）** | QoSや課金ポリシーを管理。IoTトラフィックの優先度設定に活用。*注*: 厳密にはIMSの一部ではないが、関連してQoS管理に寄与。 |
-| **SCP（Service Control Point）** | サービス提供のプラットフォーム。 |
 
 ### U-PlaneとC-Planeの関係
 - **U-Plane（User Plane）**: ユーザーデータ（音声、動画、IoTデータ）の転送を担当。
@@ -94,7 +103,6 @@ LAF、REF、NEFの情報をバックアップとして収集することは、�
 
 ### LAF (Location Area Function)
 - **役割**: モバイルユーザーの位置情報を管理する機能。ユーザーが移動しても接続が維持され、通信がスムーズに行える。
-  - *注*: LAFはキャリアや文脈依存の用語で、3GPP標準ではAMF（Access and Mobility Management Function）に相当する場合がある。
 - **主な機能**:
   - 位置情報の追跡と管理
   - 緊急時の迅速な位置特定
@@ -102,7 +110,6 @@ LAF、REF、NEFの情報をバックアップとして収集することは、�
 
 ### REF (Routing Element Function)
 - **役割**: データのルーティングを管理し、特定のトラフィックを適切な宛先に送信。
-  - *注*: REFは標準用語ではなく、BGPやUPF（User Plane Function）に類似するキャリア固有の機能を示す場合がある。
 - **主な機能**:
   - トラフィックの効率的なルーティング
   - 冗長性の確保による信頼性向上
@@ -120,14 +127,14 @@ LAF、REF、NEFの情報をバックアップとして収集することは、�
 
 1. **通報発信**: ユーザーが緊急番号にダイヤル。
 2. **接続**: 通話がコアNW経由で緊急通報受理機関に接続。
-3. **位置情報取得**: MMEやAMFが基地局データ（例：Cell ID）から位置情報を取得。
-4. **情報配信**: 位置情報がE-CSCF（Emergency Call Session Control Function）や位置情報配信機能を経由して緊急機関に送信。
+3. **位置情報取得**: AMFが基地局データ（例：Cell ID）やGPS/A-GPSから位置情報を取得。
+4. **情報配信**: 位置情報がE-CSCF（Emergency Call Session Control Function）やGMLC（Gateway Mobile Location Centre）を経由して緊急機関に送信。
 5. **処理**: 緊急機関が位置情報をもとに適切な対応（警察、消防、救急など）を実施。
 
-*注*: 位置情報はC-Plane（例：S1-APプロトコル）で処理され、キャリア固有の「DDE（Data Distribution Element）」のような機能が存在する場合がある。
+*注*: 位置情報はC-Plane（例：S1-APプロトコル）で処理され、GMLCが標準的な配信機能。DDE（Data Distribution Element）はキャリア固有の可能性。
 
 ## IoTネットワーク設定：ルートリフレクターとRADIUS認証
-このセクションでは、IoTトラフィックを扱うコアネットワークでのルートリフレクターと、アクセスネットワークでのRADIUS認証の設定例を示します。設定は大規模5G/IoTネットワークを想定し、ロンゲストプレフィックスマッチ（以下「ロンゲストマッチ」）の問題にも対応します。
+このセクションでは、IoTトラフィックを扱うコアネットワークでのルートリフレクター、アクセスネットワークでのRADIUS認証、スイッチ（RSTP）、セキュリティグループの設定例を示します。設定は大規模5G/IoTネットワークを想定し、ロンゲストプレフィックスマッチ（以下「ロンゲストマッチ」）の問題にも対応します。
 
 ### BGPが必要な理由
 BGP（Border Gateway Protocol）は、ネットワークの「交通整理役」です。IoTネットワークや大規模MNOで重要な理由：
@@ -163,10 +170,20 @@ BGP（Border Gateway Protocol）は、ネットワークの「交通整理役」
 - **低遅延**: 5GのURLLCで迅速な経路選択。
 
 #### RADIUS認証の役割
-- **デバイス認証**: EAP-SIMや証明書でIoTデバイスを検証。HSSと連携してユーザー情報を照合。
+- **デバイス認証**: EAP-AKA（5G標準）や証明書でIoTデバイスを検証。HSSと連携してユーザー情報を照合。
 - **ポリシー適用**: VLANやQoSを割り当て（例：低帯域センサー）。
 - **コアNW保護**: 認証済みトラフィックのみをBGPでルーティング。
 - **記録**: ログで課金や異常検知。
+
+#### スイッチとRSTPの役割
+- **スイッチの役割**: アクセスNWやモバイルバックホールでL2スイッチが基地局やIoTデバイスのトラフィックを中継。VLAN（例：VLAN 100）でIoTトラフィックを分離し、効率的なデータ転送を実現。
+- **RSTPの役割**: スイッチ間のループを防ぎ、ネットワークの安定性を確保。RSTP（Rapid Spanning Tree）は、従来のSTPより高速にリンクを切り替え、障害時の復旧を迅速化。
+- **例**: IoTセンサーのデータがVLAN 100でスイッチ（SW1→SW2）を経由し、PEルータに送られる。RSTPがSW1-SW2間のループをブロック。
+
+#### セキュリティグループの役割
+- **クラウド環境での保護**: 仮想SGW/UPFやルータのトラフィックを制御。例：AWSセキュリティグループでIoTトラフィック（`10.1.1.0/24`）やIPsecトンネルを許可。
+- **デフォルトルート**: インターネット向けトラフィック（0.0.0.0/0）を許可し、IoTデータをクラウドに送信。
+- **例**: セキュリティグループでUDP 500（IKE）とESP（IPsec）を許可し、RADIUSやBGPの通信を保護。
 
 ### サンプル設定：ルートリフレクター
 コアNWのルートリフレクター（`RR1`）の設定例。Cisco IOS/IOS-XEを想定。
@@ -279,7 +296,7 @@ L     192.168.1.1/32 is directly connected, Loopback0
 #### ネットワーク構成
 - **ルータ**: R1（アクセスNW、AS65010、BGPクライアント）
 - **RADIUSサーバ**: `192.168.2.10`、ポート1812（認証）、1813（アカウンティング）
-- **IoTデバイス**: センサー（`10.1.1.0/24`）、EAP-TLS/EAP-SIM認証。
+- **IoTデバイス**: センサー（`10.1.1.0/24`）、EAP-AKA認証。
 - **目的**: 認証済みトラフィックをコアNWに送り、BGPでルーティング。
 
 #### 設定コマンド
@@ -398,6 +415,135 @@ Routing entry for 10.1.1.0/24
 
 **説明**: RADIUS認証後、トラフィックが`10.1.1.0/24`に正しくルーティング。
 
+### サンプル設定：スイッチ（RSTP）
+アクセスNWでのL2スイッチ（SW1）設定例。IoTデバイスをVLAN 100で管理し、RSTPでループ防止。
+
+#### ネットワーク構成
+- **スイッチ**: SW1（アクセスNW、VLAN 100でIoTデバイス接続）
+- **接続**: SW1が基地局（gNB/eNB）や他のスイッチ（SW2）と接続し、PEルータにトラフィックを中継。
+- **目的**: IoTトラフィックを安定に転送し、ループを防止。
+
+#### 設定コマンド
+```bash
+! グローバル設定モード
+SW1# configure terminal
+
+! RSTP有効化
+SW1(config)# spanning-tree mode rapid
+
+! 優先度設定（ルートブリッジ）
+SW1(config)# spanning-tree vlan 100 priority 4096
+
+! インターフェース設定（IoTデバイス用）
+SW1(config)# interface GigabitEthernet0/1
+SW1(config-if)# switchport mode access
+SW1(config-if)# switchport access vlan 100
+SW1(config-if)# spanning-tree portfast
+SW1(config-if)# exit
+
+! インターフェース設定（バックホールスイッチ/PEルータ用）
+SW1(config)# interface GigabitEthernet0/2
+SW1(config-if)# switchport mode trunk
+SW1(config-if)# switchport trunk allowed vlan 100
+SW1(config-if)# exit
+
+! VLAN設定
+SW1(config)# vlan 100
+SW1(config-vlan)# name IOT-DEVICES
+SW1(config-vlan)# exit
+
+! 設定保存
+SW1(config)# end
+SW1# write memory
+```
+
+#### 確認コマンド
+##### 1. RSTP設定確認
+```bash
+SW1# show spanning-tree vlan 100
+VLAN0100
+  Spanning tree enabled protocol rstp
+  Root ID    Priority    4096
+             Address     0001.2B3C.4D5E
+             This bridge is the root
+  Interface           Role Sts Cost  Prio.Nbr Type
+  ------------------- ---- --- ----- -------- --------
+  Gi0/1               Desg FWD 4     128.1    P2p Edge
+  Gi0/2               Desg FWD 4     128.2    P2p
+```
+
+**説明**: SW1がVLAN 100のルートブリッジとして動作。Gi0/1（IoTデバイス）はPortFastで迅速接続、Gi0/2（バックホール）はトランクポートでPEルータに接続。
+
+### サンプル設定：セキュリティグループ
+AWSでのセキュリティグループ設定例。仮想SGW/UPFやルータのトラフィックを制御。
+
+#### ネットワーク構成
+- **セキュリティグループ**: sg-iot-traffic（仮想SGW/UPF用）
+- **目的**: IoTトラフィック（`10.1.1.0/24`）とIPsec（RADIUS/BGP）の通信を許可。
+
+#### 設定内容
+```plaintext
+Security Group: sg-iot-traffic
+- Inbound Rules:
+  Type: All Traffic, Protocol: All, Port Range: All, Source: 10.1.1.0/24 (IoT Devices)
+  Type: Custom UDP, Protocol: UDP, Port Range: 500, Source: 192.168.2.1 (RADIUS/BGP Peer)
+  Type: Custom Protocol, Protocol: ESP (50), Source: 192.168.2.1
+- Outbound Rules:
+  Type: All Traffic, Protocol: All, Port Range: All, Destination: 0.0.0.0/0 (Internet)
+```
+
+**説明**: IoTデバイスからのトラフィックとIPsec（UDP 500、ESP）を許可。デフォルトルート（0.0.0.0/0）でクラウドやインターネットに送信。
+
+### サンプル設定：IPsec
+R1とコアNWルータ（192.168.2.1）間のIPsecトンネル設定例。
+
+#### 設定コマンド
+```bash
+! グローバル設定モード
+R1# configure terminal
+
+! IKEv2ポリシー設定
+R1(config)# crypto ikev2 proposal IKEV2-PROPOSAL
+R1(config-ikev2-proposal)# encryption aes-cbc-256
+R1(config-ikev2-proposal)# integrity sha256
+R1(config-ikev2-proposal)# group 14
+R1(config-ikev2-proposal)# exit
+
+! IKEv2プロファイル
+R1(config)# crypto ikev2 profile IKEV2-PROFILE
+R1(config-ikev2-profile)# match identity remote address 192.168.2.1
+R1(config-ikev2-profile)# authentication local pre-share
+R1(config-ikev2-profile)# authentication remote pre-share
+R1(config-ikev2-profile)# keyring local KEYRING
+R1(config-ikev2-profile)# exit
+
+! 鍵設定
+R1(config)# crypto keyring KEYRING
+R1(config-keyring)# pre-shared-key address 192.168.2.1 key SecretKey123
+R1(config-keyring)# exit
+
+! IPsecトランスフォームセット
+R1(config)# crypto ipsec transform-set TS esp-aes 256 esp-sha256-hmac
+R1(config)# crypto ipsec profile IPSEC-PROFILE
+R1(config-ipsec-profile)# set transform-set TS
+R1(config-ipsec-profile)# set ikev2-profile IKEV2-PROFILE
+R1(config-ipsec-profile)# exit
+
+! トンネルインターフェース
+R1(config)# interface Tunnel0
+R1(config-if)# ip address 10.0.0.1 255.255.255.252
+R1(config-if)# tunnel source GigabitEthernet0/0
+R1(config-if)# tunnel destination 192.168.2.1
+R1(config-if)# tunnel protection ipsec profile IPSEC-PROFILE
+R1(config-if)# exit
+
+! 設定保存
+R1(config)# end
+R1# write memory
+```
+
+**説明**: RADIUSやBGPの通信を保護するIPsecトンネルを確立。
+
 ### RADIUS認証とロンゲストマッチの関連
 RADIUSはVLANやQoSを割り当て、BGPルートマップ（`IOT-PRIORITY`）と一致しないと、ロンゲストマッチの問題が発生：
 - **例**: VLAN 100（`10.1.1.0/24`）が割り当てられるが、`10.0.0.0/8`が優先され、誤ルーティング。
@@ -408,111 +554,69 @@ RADIUSはVLANやQoSを割り当て、BGPルートマップ（`IOT-PRIORITY`）�
 - **設定ミス**: ルートマップやVRFの誤設定。
 - **解決策**: prefix-listとroute-mapでIoTルートを優先。RADIUSのVLANをBGPに反映。
 
-
 # コアネットワークにおける仮想化技術の概要
-
----
 
 ## ① コアNWにおける仮想化技術の概要
 
 ### 仮想化技術導入の背景と歴史
-
 通信ネットワークの進化とともに、サービスの多様化やトラフィック急増が進み、従来の物理アプライアンス中心のネットワーク構成は課題を抱えるようになりました。
-
-- 拡張の柔軟性が低く、新規サービス開始やトラフィック増加に対応するためには、物理機器の調達・設置に多大な時間とコストがかかる。  
-- 専用機器ごとの管理・保守の複雑さにより、運用負荷が増大。  
-- サービス展開のスピードが遅く、市場投入までにタイムラグが発生。  
+- 拡張の柔軟性が低く、新規サービス開始やトラフィック増加に対応するためには、物理機器の調達・設置に多大な時間とコストがかかる。
+- 専用機器ごとの管理・保守の複雑さにより、運用負荷が増大。
+- サービス展開のスピードが遅く、市場投入までにタイムラグが発生。
 
 これらの問題を解決するために、2010年代半ばから通信事業者はネットワーク機能の仮想化（NFV）を推進し、汎用サーバ上でネットワーク機能をソフトウェア化することで柔軟かつ迅速なリソース割当を可能にしました。また、SDNを併用して細かなトラフィック制御や品質保証も実現しています。
 
----
-
-### 背景  
+### 背景
 従来の物理アプライアンスによるEPC/5GC構成は柔軟性が低く、設備増強や障害対応に時間がかかる。
 
----
-
 ### 解決策
-
-- **NFV（Network Functions Virtualization）**  
-  MME、SGW、PGW、PCRFなどをVMまたはコンテナ化し、汎用サーバ上で稼働させる。
-
-- **MANO（Management and Orchestration）**  
-  ETSI NFV-MANOに準拠し、VIM（例：OpenStack）、VNFM、NFVOで構成。  
-  リソース管理、スケーリング、障害復旧（オートヒーリング）を一元管理する。
-
-- **SDN（Software Defined Networking）**  
-  コアNWのルータ・スイッチの制御プレーンとデータプレーンを分離し、動的に経路変更・QoS制御を実施。  
-  BGPによる物理NW制御だけでなく、SDN Controller（例：ONOS、OpenDaylight）でフロー単位制御を行う。
-
-- **AWS/Azure/GCPの活用**  
-  VPC/VPNを使った仮想コアNW構築。  
-  Route53やTransit Gateway、Direct ConnectをBGP連携。  
-  オートヒーリングにより、インスタンス障害時の自動復旧・再配置を実現（例：Auto Scaling Group、Lambdaによる復旧トリガ）。
-
----
+- **NFV（Network Functions Virtualization）**: MME、SGW、PGW、PCRFなどをVMまたはコンテナ化し、汎用サーバ上で稼働。
+- **MANO（Management and Orchestration）**: ETSI NFV-MANOに準拠し、VIM（例：OpenStack）、VNFM、NFVOで構成。リソース管理、スケーリング、障害復旧（オートヒーリング）を一元管理。
+- **SDN（Software Defined Networking）**: コアNWのルータ・スイッチの制御プレーンとデータプレーンを分離し、動的に経路変更・QoS制御を実施。BGPによる物理NW制御だけでなく、SDN Controller（例：ONOS、OpenDaylight）でフロー単位制御。
+- **AWS/Azure/GCPの活用**: VPC/VPNを使った仮想コアNW構築。Route53やTransit Gateway、Direct ConnectをBGP連携。オートヒーリングにより、インスタンス障害時の自動復旧・再配置を実現（例：Auto Scaling Group、Lambdaによる復旧トリガ）。
 
 ## ② MANOを用いたコアNW運用モデル
-
 ### MANOの役割
+| 機能 | 内容 | 例 |
+|------|------|-----|
+| VIM（Virtualized Infrastructure Manager） | 仮想リソース（VM、コンテナ、ネットワーク）の管理 | OpenStack、AWS EC2/VPC |
+| VNFM（VNF Manager） | VNF（仮想化ネットワーク機能）のライフサイクル管理 | MME/SGW/PGWのスケーリング、ヘルスチェック |
+| NFVO（NFV Orchestrator） | VNF群のサービスチェーン構築・運用管理 | VoLTEサービスのオーケストレーション |
 
-| 機能                         | 内容                                 | 例                           |
-|------------------------------|------------------------------------|------------------------------|
-| VIM（Virtualized Infrastructure Manager） | 仮想リソース（VM、コンテナ、ネットワーク）の管理 | OpenStack、AWS EC2/VPC       |
-| VNFM（VNF Manager）           | VNF（仮想化ネットワーク機能）のライフサイクル管理 | MME/SGW/PGWのスケーリング、ヘルスチェック |
-| NFVO（NFV Orchestrator）      | VNF群のサービスチェーン構築・運用管理         | VoLTEサービスのオーケストレーション    |
-
-### 適用例  
-- IoTトラフィックが増加した際、VNFMがPGWのインスタンスをスケールアウト。  
+### 適用例
+- IoTトラフィックが増加した際、VNFMがPGWのインスタンスをスケールアウト。
 - コアNW障害発生時、NFVOが代替経路の設定、仮想NWを再構成しサービス継続。
 
----
-
 ## ③ VNFの導入による運用効率化
-
-### VNF（Virtual Network Function）例（具体的な例は省略）
-
-### 利点  
-- ハードウェア依存排除による迅速な設備増設。  
-- テスト環境と本番環境の構成統一。  
+### 利点
+- ハードウェア依存排除による迅速な設備増設。
+- テスト環境と本番環境の構成統一。
 - オートスケールとオートヒーリングにより運用工数削減。
 
-### 運用例  
-- AWS EC2上でvPGWを展開、Auto Scaling Groupを設定し負荷増加時に自動追加。  
+### 運用例
+- AWS EC2上でvPGWを展開、Auto Scaling Groupを設定し負荷増加時に自動追加。
 - CloudWatchアラームを利用しCPU/メモリ使用率が閾値超過時にLambdaがトリガーし、Auto Healingで障害インスタンスを削除・再生成。
 
----
-
 ## ④ SDNとコアNW仮想化の連携
-
-### SDNの導入理由  
-- BGPだけでは細粒度なフロー制御が困難。  
+### SDNの導入理由
+- BGPだけでは細粒度なフロー制御が困難。
 - IoT、VoLTE、MECなどアプリケーションごとのトラフィック制御が必要。
 
-### 構成例  
-- SDN Controller（OpenDaylight）を用いてUPF/PGW周辺のトラフィック制御。  
-- URLフィルタリングやQoS設定を動的に適用。  
+### 構成例
+- SDN Controller（OpenDaylight）を用いてUPF/PGW周辺のトラフィック制御。
+- URLフィルタリングやQoS設定を動的に適用。
 - Disaster Recoveryとして経路障害時の自動切り替え。
 
-### 例  
-- IoTトラフィック（10.1.1.0/24）がエッジサーバー障害時に別リージョンへ転送。  
+### 例
+- IoTトラフィック（10.1.1.0/24）がエッジサーバー障害時に別リージョンへ転送。
 - VoLTE通信の遅延監視、経路再計算による即時迂回。
 
----
-
 ## ⑤ AWSオートヒーリングとの連携
-
-### オートヒーリングの位置づけ  
-- MANOによるVNF監視・障害検知。  
-- AWS Auto Scalingによるインスタンス復旧・再配置。  
+### オートヒーリングの位置づけ
+- MANOによるVNF監視・障害検知。
+- AWS Auto Scalingによるインスタンス復旧・再配置。
 - Route53でDNSフェイルオーバーを実装しコアNWサービス可用性確保。
 
-### 適用例  
-- vMME障害検知時：  
-  CloudWatchで死活監視。  
-  LambdaがEC2再起動。  
-  Auto Scaling Groupで代替インスタンス起動。
-
-- 仮想BGPルータ（vRR）障害時：  
-  Transit Gateway/BGPセッションの自動切り替え。  
-  冗長構成によりダウンタイムを最小化。
+### 適用例
+- vMME障害検知時：CloudWatchで死活監視、LambdaがEC2再起動、Auto Scaling Groupで代替インスタンス起動。
+- 仮想BGPルータ（vRR）障害時：Transit Gateway/BGPセッションの自動切り替え、冗長構成によりダウンタイムを最小化。
